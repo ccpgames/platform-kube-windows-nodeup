@@ -294,7 +294,6 @@ function Get-NodeKeysetFromTags {
   $tags = $Tags | Where-Object { $_.Key -like "$Prefix/*" } | ForEach-Object {
     return $_.Key.replace("$Prefix/", "") + "=" + $_.Value
   }
-
   return $tags
 }
 
