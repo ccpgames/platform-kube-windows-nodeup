@@ -450,13 +450,7 @@ function ConvertTo-AppParameters {
 }
 
 ########################################################################################################################
-# (1) Kops Cluster Configuration Extraction
-# Prerequisites
-#   (1) The kops-managed InstanceGroup resource will need to have two entries in `cloudLabels`:
-#       - ccpgames.com/kops/state-store-bucket, set to the name of the S3 bucket containing the kops state store
-#       - ccpgames.com/kops/state-store-prefix, set to the S3 prefix containing the kops state store
-#       The script will use this information to pull the cluster configuration and extract the necessary information.
-#   (2) A premade flannel serviceaccount Kubernetes configuration file must exist in S3 and be readable from a node.
+# SCRIPT START
 ########################################################################################################################
 # Pull down our instance's tags.
 $InstanceId = (wget "http://$script:AWSSelfServiceUri/meta-data/instance-id" -UseBasicParsing).Content
@@ -602,9 +596,16 @@ $NetworkDefaultInterface = (
 $NetworkDefaultGateway = $NetworkDefaultInterface.IPv4DefaultGateway.NextHop
 $NetworkHostIpAddress = $NetworkDefaultInterface.IPv4Address.IPAddress
 
-# Get taints and role from the cluster specification
-$NodeTaints = (Get-NodeTaintsFromTags) -Join ""","""
-$NodeLabels = (Get-NodeLabelsFromTags) -Join ""","""
+# Get taints and role from the cluster specification.
+$NodeTaints = (Get-NodeTaintsFromTags)
+$NodeLabels = (Get-NodeLabelsFromTags)
+
+# Add our own labels and taints.
+$NodeTaints.Add("node.kubernetes.io/NotReady=:NoSchedule")
+
+# Join labels and taints into a single string.
+$NodeTaints = $NodeTaints -Join ""","""
+$NodeLabels = $NodeLabels -Join ""","""
 $NodeTaints = """$NodeTaints"""
 $NodeLabels = """$NodeLabels"""
 
@@ -676,7 +677,7 @@ Update-CniConfigurationFile
 
 $Services = @("flanneld", "kubelet", "kube-proxy")
 foreach($Service in $Services) {
-# Install our base services.
+  # Install our base services.
   nssm install $Service "$KubernetesDirectory/bin/$Service"
 
   # Setup logging for each service.
@@ -705,7 +706,7 @@ $KubeletArguments = @{
   "cni-conf-dir"="$KubernetesDirectory/cni/config";
   "enable-debugging-handlers"="true";
   "enforce-node-allocatable"="";
-  "feature-gates"="""WinOverlay=true"""; # TODO: get this from cluster spec
+  "feature-gates"="""WinOverlay=true""";
   "hairpin-mode"="promiscuous-bridge";
   "hostname-override"="$env:NODE_NAME";
   "image-pull-progress-deadline"="20m";
@@ -715,7 +716,7 @@ $KubeletArguments = @{
   "node-labels"="$NodeLabels";
   "non-masquerade-cidr"="$env:KubeNonMasqueradeCidr";
   "pod-infra-container-image"="kubeletwin/pause";
-  "register-schedulable"="false";
+  "register-schedulable"="true";
   "register-with-taints"="$NodeTaints";
   "resolv-conf"="";
   "v"="6"
@@ -767,8 +768,8 @@ nssm set kube-proxy AppParameters (ConvertTo-AppParameters -AppParameters $KubeP
 Get-HnsPolicyList | Remove-HnsPolicyList
 nssm start kube-proxy
 
-# Uncordon the node.
-kubectl --kubeconfig="$KubernetesDirectory/kconfigs/kubelet.kcfg" uncordon $env:NODE_NAME
+# Remove the NotReady taint so that pods can be scheduled.
+kubectl --kubeconfig="$KubernetesDirectory/kconfigs/kubelet.kcfg" taint nodes $env:NODE_NAME "node.kubernetes.io/NotReady-"
 
 # Mark our machine as being fully ready.
 [System.Environment]::SetEnvironmentVariable('KOPS_NODE_STATE', "ready", [System.EnvironmentVariableTarget]::Machine)
