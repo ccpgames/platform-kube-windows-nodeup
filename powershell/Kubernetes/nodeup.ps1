@@ -670,7 +670,7 @@ while($? -eq $false) {
 }
 
 ########################################################################################################################
-  # Install our base services.
+
 Update-NetConfigurationFile
 Update-CniConfigurationFile
 
