@@ -8,71 +8,6 @@ $global:progressPreference = 'silentlyContinue'
 $AWSSelfServiceUri = "169.254.169.254/latest"
 $KubernetesDirectory = "c:/k"
 $KopsConfigBaseRegex = "^ConfigBase: s3://(?<bucket>[^/]+)/(?<prefix>.+)$"
-$RequiredWindowsUpdates = @(@{"Key"="KB4482887"; "Checksum"="826158e9ebfcabe08b425bf2cb160cd5bc1401da"})
-
-########################################################################################################################
-# Windows Update Installation
-########################################################################################################################
-function Is-UpdateApplied {
-  param(
-    [parameter(Mandatory=$true)] $UpdateId
-  )
-
-  return (((Get-Hotfix) | ? HotfixId -eq $UpdateId) -ne $null)
-}
-
-function Install-WindowsUpdates {
-  param(
-    [parameter(Mandatory=$true)] [Object[]] $Updates,
-    [parameter(Mandatory=$false)] $ComputerInfo = (Get-ComputerInfo)
-  )
-
-  $MicrosoftUpdateInfo = @{
-    "domain"="download.windowsupdate.com"
-    "location"="c/msdownload/update/software/updt/2019/02"
-  }
-
-  # Generate our download directory.
-  $DownloadDirectory = (Join-Path -Path (Get-Item Env:TEMP).Value -ChildPath "windows")
-  New-Item -ItemType "directory" -Path "$DownloadDirectory" -ErrorAction Ignore
-
-  # Get our OS version.
-  $OsVersionRegex = "^(?<version>\d+\.\d+)\.\d+$"
-  $m = ($ComputerInfo.OsVersion | Select-String -Pattern $OsVersionRegex -AllMatches).Matches.Groups
-  $OsVersion = ($m | ? Name -eq "version").Value
-
-  # Get a list of applied updates.
-  $AppliedUpdates = (Get-Hotfix)
-
-  foreach($u in $Updates) {
-    $key = $u.Key
-    # Check to see if the update is already applied, if it exists, skip it.
-    if(Is-UpdateApplied -UpdateId $u.Key) { continue }
-
-    # Generate the URI to download the update from Microsoft.
-    $update = "http://{0}/{1}/windows{2}-{3}-x64_{4}.msu" -f `
-      $MicrosoftUpdateInfo.domain, `
-      $MicrosoftUpdateInfo.location, `
-      $OsVersion, `
-      $u.Key.toLower(), `
-      $u.Checksum
-    
-    $LocalFile = (Join-Path -Path $DownloadDirectory -ChildPath $u.Key)
-
-    Start-Job -Name $u.Key.toLower() -ScriptBlock {
-      $remote = $args[0]
-      $local = $args[1]
-
-      # Download the update file.
-      Write-Host "pulling $remote => $local.msu"
-      wget "$remote" -OutFile "$local.msu"
-
-      # Install the update quietly and don't restart.
-      Write-Host "applying update $remote @ $local.msu"
-      c:/windows/system32/wusa.exe "$local.msu" /quiet /norestart
-    } -ArgumentList $update,(Join-Path -Path $DownloadDirectory -ChildPath $u.Key)
-  }
-}
 
 ########################################################################################################################
 # Conveinence Functions
@@ -453,138 +388,97 @@ function ConvertTo-AppParameters {
 ########################################################################################################################
 # SCRIPT START
 ########################################################################################################################
+# Check to see if the node has already been prepared, if it has just exit early.
+if($env:KOPS_NODE_STATE -eq "ready") { exit }
+
 # Pull down our instance's tags.
 $InstanceId = (wget "http://$script:AWSSelfServiceUri/meta-data/instance-id" -UseBasicParsing).Content
 $Ec2Tags = (Get-EC2Tag -Filter @{ Name="resource-id"; Values="$InstanceId" })
 
-# If we're instructed to prepare the node, then gather up all the necessary information and install components.
-if($env:KOPS_NODE_STATE -eq $null) {
-  # Start by obtaining information about our machine.
-  $ComputerInfo = (Get-ComputerInfo)
+# Start by obtaining information about our machine.
+$ComputerInfo = (Get-ComputerInfo)
 
-  # Start the installation of our required Windows updates.
-  Install-WindowsUpdates `
-    -Updates $RequiredWindowsUpdates `
-    -ComputerInfo $ComputerInfo
-  
-  # Install a Powershell YAML module.
-  Start-Job -Name "yaml-install" -ScriptBlock { Install-Module powershell-yaml -Force }
+# Install a Powershell YAML module.
+Start-Job -Name "yaml-install" -ScriptBlock { Install-Module powershell-yaml -Force }
 
-  # Pull a few variables from AWS' self-service URI.
-  $AwsRegion = ((wget "http://$script:AWSSelfServiceUri/dynamic/instance-identity/document" -UseBasicParsing).Content | ConvertFrom-Json).region
-  $env:NODE_NAME = (wget "http://$script:AWSSelfServiceUri/meta-data/local-hostname" -UseBasicParsing).Content
+# Pull a few variables from AWS' self-service URI.
+$AwsRegion = ((wget "http://$script:AWSSelfServiceUri/dynamic/instance-identity/document" -UseBasicParsing).Content | ConvertFrom-Json).region
+$env:NODE_NAME = (wget "http://$script:AWSSelfServiceUri/meta-data/local-hostname" -UseBasicParsing).Content
 
-  # Extract our kops configuration base from the user-data.
-  $KopsUserDataFile = "c:/userdata.txt"
-  $KopsUserData = (wget "http://$script:AWSSelfServiceUri/user-data" -UseBasicParsing).Content
-  $KopsUserData = [System.Text.Encoding]::ASCII.GetString($KopsUserData)
-  Set-Content -Path $KopsUserDataFile -Value $KopsUserData
-  $KopsConfigBase = (Get-Content $KopsUserDataFile | Select-String -Pattern $KopsConfigBaseRegex -AllMatches).Matches.Groups
-  Remove-Item -Path $KopsUserDataFile
+# Extract our kops configuration base from the user-data.
+$KopsUserDataFile = "c:/userdata.txt"
+$KopsUserData = (wget "http://$script:AWSSelfServiceUri/user-data" -UseBasicParsing).Content
+$KopsUserData = [System.Text.Encoding]::ASCII.GetString($KopsUserData)
+Set-Content -Path $KopsUserDataFile -Value $KopsUserData
+$KopsConfigBase = (Get-Content $KopsUserDataFile | Select-String -Pattern $KopsConfigBaseRegex -AllMatches).Matches.Groups
+Remove-Item -Path $KopsUserDataFile
 
-  # Store kops S3 backend config information from the userdata.
-  $KopsStateStoreBucket = ($KopsConfigBase | ? Name -eq "bucket").Value
-  $KopsStateStorePrefix = ($KopsConfigBase | ? Name -eq "prefix").Value
+# Store kops S3 backend config information from the userdata.
+$KopsStateStoreBucket = ($KopsConfigBase | ? Name -eq "bucket").Value
+$KopsStateStorePrefix = ($KopsConfigBase | ? Name -eq "prefix").Value
 
-  # Prepare our filesystem.
-  New-Item -ItemType directory -Path "$KubernetesDirectory/bin"
+# Prepare our filesystem.
+New-Item -ItemType directory -Path "$KubernetesDirectory/bin"
 
-  # Prepare our environment path.
-  $env:PATH += ";$KubernetesDirectory/bin"
-  $env:PATH += ";$KubernetesDirectory/cni"
+# Prepare our environment path.
+$env:PATH += ";$KubernetesDirectory/bin"
+$env:PATH += ";$KubernetesDirectory/cni"
 
-  $KopsClusterSpecificationFile = "$KubernetesDirectory/cluster.spec"
+$KopsClusterSpecificationFile = "$KubernetesDirectory/cluster.spec"
 
-  # Download the cluster specification from the kops S3 backend.
-  Read-S3Object `
-    -BucketName "$KopsStateStoreBucket" `
-    -Key "$KopsStateStorePrefix/cluster.spec" `
-    -File $KopsClusterSpecificationFile
+# Download the cluster specification from the kops S3 backend.
+Read-S3Object `
+  -BucketName "$KopsStateStoreBucket" `
+  -Key "$KopsStateStorePrefix/cluster.spec" `
+  -File $KopsClusterSpecificationFile
 
-  Get-Job -Name "yaml-install" | Wait-Job
-  Import-Module powershell-yaml
+Get-Job -Name "yaml-install" | Wait-Job
+Import-Module powershell-yaml
 
-  # Parse the YAML cluster specification file into a PowerShell object and remove the file.
-  $KopsClusterSpecification = (Get-Content $KopsClusterSpecificationFile | ConvertFrom-Yaml 2>&1)
-  Remove-Item -Path $KopsClusterSpecificationFile -Force
+# Parse the YAML cluster specification file into a PowerShell object and remove the file.
+$KopsClusterSpecification = (Get-Content $KopsClusterSpecificationFile | ConvertFrom-Yaml 2>&1)
+Remove-Item -Path $KopsClusterSpecificationFile -Force
 
-  # Extract all necessary configuration items regarding the cluster.
-  $KubeClusterCidr = ($KopsClusterSpecification.clusterCidr | Sort-Object -Unique)
-  $KubeClusterDns = ($KopsClusterSpecification.clusterDNS | Sort-Object -Unique)
-  $KubeClusterInternalApi = ($KopsClusterSpecification.masterInternalName | Sort-Object -Unique)
-  $KubeDnsDomain = ($KopsClusterSpecification.clusterDnsDomain | Sort-Object -Unique)
-  $KubeNonMasqueradeCidr = ($KopsClusterSpecification.nonMasqueradeCIDR | Sort-Object -Unique)
-  $KubeServiceCidr = ($KopsClusterSpecification.serviceClusterIPRange | Sort-Object -Unique)
-  $KubernetesVersion = ($KopsClusterSpecification.kubernetesVersion | Sort-Object -Unique)
+# Extract all necessary configuration items regarding the cluster.
+$KubeClusterCidr = ($KopsClusterSpecification.clusterCidr | Sort-Object -Unique)
+$KubeClusterDns = ($KopsClusterSpecification.clusterDNS | Sort-Object -Unique)
+$KubeClusterInternalApi = ($KopsClusterSpecification.masterInternalName | Sort-Object -Unique)
+$KubeDnsDomain = ($KopsClusterSpecification.clusterDnsDomain | Sort-Object -Unique)
+$KubeNonMasqueradeCidr = ($KopsClusterSpecification.nonMasqueradeCIDR | Sort-Object -Unique)
+$KubeServiceCidr = ($KopsClusterSpecification.serviceClusterIPRange | Sort-Object -Unique)
+$KubernetesVersion = ($KopsClusterSpecification.kubernetesVersion | Sort-Object -Unique)
 
-  # Download Kubernetes configuration files for both the kubelet and kube-proxy users.
-  New-KubernetesConfigurations `
-    -DestinationBaseDir "$KubernetesDirectory/kconfigs" `
-    -KopsStateStoreBucket $KopsStateStoreBucket `
-    -KopsStateStorePrefix $KopsStateStorePrefix `
-    -KubernetesMasterInternalName $KubeClusterInternalApi `
-    -KubernetesUsers kubelet,kube-proxy
+# Download Kubernetes configuration files for both the kubelet and kube-proxy users.
+New-KubernetesConfigurations `
+  -DestinationBaseDir "$KubernetesDirectory/kconfigs" `
+  -KopsStateStoreBucket $KopsStateStoreBucket `
+  -KopsStateStorePrefix $KopsStateStorePrefix `
+  -KubernetesMasterInternalName $KubeClusterInternalApi `
+  -KubernetesUsers kubelet,kube-proxy
 
-  # Download the pre-made flannel ServiceAccount Kubernetes configuaration file.
-  Read-S3Object `
-    -BucketName "$KopsStateStoreBucket" `
-    -Key "$KopsStateStorePrefix/serviceaccount/flannel.kcfg" `
-    -File "$KubernetesDirectory/kconfigs/flannel.kcfg"
+# Download the pre-made flannel ServiceAccount Kubernetes configuaration file.
+Read-S3Object `
+  -BucketName "$KopsStateStoreBucket" `
+  -Key "$KopsStateStorePrefix/serviceaccount/flannel.kcfg" `
+  -File "$KubernetesDirectory/kconfigs/flannel.kcfg"
 
-  Install-AwsKubernetesFlannel -InstallationDirectory $KubernetesDirectory
-  Install-AwsKubernetesNode -KubernetesVersion $KubernetesVersion -InstallationDirectory $KubernetesDirectory
-  Install-DockerImages
-  Install-NSSM -InstallationDirectory $KubernetesDirectory
+Install-AwsKubernetesFlannel -InstallationDirectory $KubernetesDirectory
+Install-AwsKubernetesNode -KubernetesVersion $KubernetesVersion -InstallationDirectory $KubernetesDirectory
+Install-DockerImages
+Install-NSSM -InstallationDirectory $KubernetesDirectory
 
-  # Wait for all installation jobs to finish.
-  Get-Job | Wait-Job
+# Wait for all installation jobs to finish.
+Get-Job | Wait-Job
 
-  # Wait for all Windows updates to finish, don't know why the job exits early.
-  Get-Process | ? Name -eq "wusa" | Wait-Process
-
-  # Save all important pieces of information to the environment.
-  $env:AwsRegion = $AwsRegion
-  $env:KubeClusterCidr = $KubeClusterCidr
-  $env:KubeClusterDns = $KubeClusterDns
-  $env:KubeClusterInternalApi = $KubeClusterInternalApi
-  $env:KubeDnsDomain = $KubeDnsDomain
-  $env:KubeNonMasqueradeCidr = $KubeNonMasqueradeCidr
-  $env:KubeServiceCidr = $KubeServiceCidr
-  $env:KubeNonMasqueradeCidr = $KubeNonMasqueradeCidr
-  
-  $Target = [System.EnvironmentVariableTarget]::Machine
-  [System.Environment]::SetEnvironmentVariable('AwsRegion', $env:AwsRegion, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterCidr', $env:KubeClusterCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterDns', $env:KubeClusterDns, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterInternalApi', $env:KubeClusterInternalApi, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeDnsDomain', $env:KubeDnsDomain, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeNonMasqueradeCidr', $env:KubeNonMasqueradeCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeServiceCidr', $env:KubeServiceCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeNonMasqueradeCidr', $env:KubeNonMasqueradeCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('NODE_NAME', $env:NODE_NAME, $Target)
-  [System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, $Target)
-  [System.Environment]::SetEnvironmentVariable('KOPS_NODE_STATE', "prepared", $Target)
-
-  $Target = [System.EnvironmentVariableTarget]::User
-  [System.Environment]::SetEnvironmentVariable('AwsRegion', $env:AwsRegion, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterCidr', $env:KubeClusterCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterDns', $env:KubeClusterDns, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeClusterInternalApi', $env:KubeClusterInternalApi, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeDnsDomain', $env:KubeDnsDomain, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeNonMasqueradeCidr', $env:KubeNonMasqueradeCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeServiceCidr', $env:KubeServiceCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('KubeNonMasqueradeCidr', $env:KubeNonMasqueradeCidr, $Target)
-  [System.Environment]::SetEnvironmentVariable('NODE_NAME', $env:NODE_NAME, $Target)
-  [System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, $Target)
-  [System.Environment]::SetEnvironmentVariable('KOPS_NODE_STATE', "prepared", $Target)
-
-  # Once everything has finished, restart the machine.
-  Restart-Computer -Force
-  exit
-}
-
-# If the node is already ready, just exit, we don't need to do anything.
-if($env:KOPS_NODE_STATE -eq "ready") { exit }
+# Save all important pieces of information to the environment.
+$env:AwsRegion = $AwsRegion
+$env:KubeClusterCidr = $KubeClusterCidr
+$env:KubeClusterDns = $KubeClusterDns
+$env:KubeClusterInternalApi = $KubeClusterInternalApi
+$env:KubeDnsDomain = $KubeDnsDomain
+$env:KubeNonMasqueradeCidr = $KubeNonMasqueradeCidr
+$env:KubeServiceCidr = $KubeServiceCidr
+$env:KubeNonMasqueradeCidr = $KubeNonMasqueradeCidr
 
 # Acquire additional network information for a later stage.
 $NetworkDefaultInterface = (
