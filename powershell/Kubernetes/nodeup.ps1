@@ -294,6 +294,7 @@ function Get-NodeKeysetFromTags {
   $tags = $Tags | Where-Object { $_.Key -like "$Prefix/*" } | ForEach-Object {
     return $_.Key.replace("$Prefix/", "") + "=" + $_.Value
   }
+
   return $tags
 }
 
@@ -597,11 +598,11 @@ $NetworkDefaultGateway = $NetworkDefaultInterface.IPv4DefaultGateway.NextHop
 $NetworkHostIpAddress = $NetworkDefaultInterface.IPv4Address.IPAddress
 
 # Get taints and role from the cluster specification.
-$NodeTaints = (Get-NodeTaintsFromTags)
-$NodeLabels = (Get-NodeLabelsFromTags)
+$NodeTaints = @(Get-NodeTaintsFromTags)
+$NodeLabels = @(Get-NodeLabelsFromTags)
 
 # Add our own labels and taints.
-$NodeTaints.Add("node.kubernetes.io/NotReady=:NoSchedule")
+$NodeTaints += @("node.kubernetes.io/NotReady=:NoSchedule")
 
 # Join labels and taints into a single string.
 $NodeTaints = $NodeTaints -Join ""","""
