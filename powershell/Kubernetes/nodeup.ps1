@@ -450,13 +450,7 @@ function ConvertTo-AppParameters {
 }
 
 ########################################################################################################################
-# (1) Kops Cluster Configuration Extraction
-# Prerequisites
-#   (1) The kops-managed InstanceGroup resource will need to have two entries in `cloudLabels`:
-#       - ccpgames.com/kops/state-store-bucket, set to the name of the S3 bucket containing the kops state store
-#       - ccpgames.com/kops/state-store-prefix, set to the S3 prefix containing the kops state store
-#       The script will use this information to pull the cluster configuration and extract the necessary information.
-#   (2) A premade flannel serviceaccount Kubernetes configuration file must exist in S3 and be readable from a node.
+# SCRIPT START
 ########################################################################################################################
 # Pull down our instance's tags.
 $InstanceId = (wget "http://$script:AWSSelfServiceUri/meta-data/instance-id" -UseBasicParsing).Content
