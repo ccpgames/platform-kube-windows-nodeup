@@ -4,7 +4,7 @@
 # will be explained down.
 
 # Define some of our constants.
-$AWSSelfServiceUri = "169.254.169.254/latest"
+$global:progressPreference = 'silentlyContinue'
 $KubernetesDirectory = "c:/k"
 $KopsConfigBaseRegex = "^ConfigBase: s3://(?<bucket>[^/]+)/(?<prefix>.+)$"
 $RequiredWindowsUpdates = @(@{"Key"="KB4482887"; "Checksum"="826158e9ebfcabe08b425bf2cb160cd5bc1401da"})
