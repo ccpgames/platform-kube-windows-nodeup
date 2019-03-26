@@ -1,0 +1,118 @@
+# DEBUG POD ON WINDOWS
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: debug-windows
+  name: debug-windows
+  namespace: default
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: debug-windows
+  template:
+    metadata:
+      labels:
+        app: debug-windows
+    spec:
+      containers:
+        - image: mcr.microsoft.com/windows/servercore:1809
+          name: server
+          resources: {}
+          command: ["ping"]
+          args: ["-t", "localhost"]
+      nodeSelector:
+        kubernetes.io/os: windows
+        kubernetes.io/os-version: "1809"
+        kops.k8s.io/instancegroup: windows-sidecar
+      tolerations:
+        - operator: Exists
+
+# DEBUG POD ON LINUX
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: debug-linux
+  name: debug-linux
+  namespace: default
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: debug-linux
+  template:
+    metadata:
+      labels:
+        app: debug-linux
+    spec:
+      containers:
+        - image: busybox
+          name: debug-linux
+          resources: {}
+          stdin: true
+      nodeSelector:
+        kubernetes.io/os: linux
+        kops.k8s.io/instancegroup: nodes
+      tolerations:
+        - operator: Exists
+
+# GOLANG WEBSERVICE DEPLOYMENT ON WINDOWS
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: service-windows
+  name: service-windows
+  namespace: default
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: service-windows
+  template:
+    metadata:
+      labels:
+        app: service-windows
+    spec:
+      containers:
+        - image: celestialorb/simple-goserver
+          name: server
+          resources: {}
+          ports:
+            - name: http
+              containerPort: 80
+      nodeSelector:
+        kubernetes.io/os: windows
+        kubernetes.io/os-version: "1809"
+        kops.k8s.io/instancegroup: windows
+      tolerations:
+        - operator: Equal
+          key: kubernetes.io/os
+          value: windows
+        - operator: Equal
+          key: kubernetes.io/os-version
+          value: "1809"
+
+# GOLANG WINDOWS SERVICE
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-windows
+  namespace: default
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: service-windows
