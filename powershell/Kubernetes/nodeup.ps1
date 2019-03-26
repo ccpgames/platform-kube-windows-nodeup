@@ -423,6 +423,7 @@ New-Item -ItemType directory -Path "$KubernetesDirectory/bin"
 # Prepare our environment path.
 $env:PATH += ";$KubernetesDirectory/bin"
 $env:PATH += ";$KubernetesDirectory/cni"
+[System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, [System.EnvironmentVariableTarget]::Machine)
 
 $KopsClusterSpecificationFile = "$KubernetesDirectory/cluster.spec"
 
@@ -508,6 +509,7 @@ $NodeLabels = """$NodeLabels"""
 $env:DOCKER_CONFIG = "c:/.docker"
 New-Item -Path $env:DOCKER_CONFIG -ItemType directory
 Invoke-Expression -Command (Get-ECRLoginCommand -Region $env:AwsRegion).Command
+[System.Environment]::SetEnvironmentVariable('DOCKER_CONFIG', $env:DOCKER_CONFIG, [System.EnvironmentVariableTarget]::Machine)
 
 # Run install docker again, this time with servercore
 Install-DockerImages -WithServerCore $true
@@ -668,4 +670,3 @@ kubectl --kubeconfig="$KubernetesDirectory/kconfigs/kubelet.kcfg" taint nodes $e
 
 # Mark our machine as being fully ready.
 [System.Environment]::SetEnvironmentVariable('KOPS_NODE_STATE', "ready", [System.EnvironmentVariableTarget]::Machine)
-[System.Environment]::SetEnvironmentVariable('KOPS_NODE_STATE', "ready", [System.EnvironmentVariableTarget]::User)
