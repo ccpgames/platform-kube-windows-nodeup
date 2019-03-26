@@ -2,6 +2,9 @@
 # This PowerShell script is to be run on startup of a Windows node managed via a kops InstanceGroup resource.
 # There are a few pre-requisites in order for this script to work, as well as a few "best practices", all of which
 # will be explained down.
+param(
+  [parameter(Mandatory=$false)] [switch] AutoGenerateWindowsTaints = $true
+)
 
 # Define some of our constants.
 $global:progressPreference = 'silentlyContinue'
@@ -502,10 +505,13 @@ $NodeLabels += @(
   "kubernetes.io/role=node",
   "node-role.kubernetes.io/node="
 )
-$NodeTaints += @(
-  "kubernetes.io/os=windows:NoSchedule",
-  "kubernetes.io/os-version=$($ComputerInfo.WindowsVersion):NoSchedule"
-)
+
+if($AutoGenerateWindowsTaints) {
+  $NodeTaints += @(
+    "kubernetes.io/os=windows:NoSchedule",
+    "kubernetes.io/os-version=$($ComputerInfo.WindowsVersion):NoSchedule"
+  )
+}
 
 # Initially mark the node with NotReady taint.
 $NodeTaints += @("node.kubernetes.io/NotReady=:NoSchedule")
