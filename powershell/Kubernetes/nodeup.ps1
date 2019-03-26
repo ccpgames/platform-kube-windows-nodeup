@@ -3,7 +3,7 @@
 # There are a few pre-requisites in order for this script to work, as well as a few "best practices", all of which
 # will be explained down.
 param(
-  [parameter(Mandatory=$false)] [switch] AutoGenerateWindowsTaints = $true
+  [parameter(Mandatory=$false)] [switch] $AutoGenerateWindowsTaints = $true
 )
 
 # Define some of our constants.
