@@ -498,7 +498,7 @@ $NodeLabels = @(Get-NodeLabelsFromTags)
 
 # Add our own labels and taints.
 $NodeLabels += @(
-  "kubernetes.io/os=windows-$($ComputerInfo.WindowsVersion)",
+  "kubernetes.io/os-version=$($ComputerInfo.WindowsVersion)",
   "kubernetes.io/role=node",
   "node-role.kubernetes.io/node="
 )
