@@ -497,6 +497,14 @@ $NodeTaints = @(Get-NodeTaintsFromTags)
 $NodeLabels = @(Get-NodeLabelsFromTags)
 
 # Add our own labels and taints.
+$NodeLabels += @(
+  "kubernetes.io/os=windows-$($ComputerInfo.WindowsVersion)",
+  "kubernetes.io/role=node",
+  "node-role.kubernetes.io/node="
+)
+$NodeTaints += @("kubernetes.io/os=windows-$($ComputerInfo.WindowsVersion):NoSchedule")
+
+# Initially mark the node with NotReady taint.
 $NodeTaints += @("node.kubernetes.io/NotReady=:NoSchedule")
 
 # Join labels and taints into a single string.
