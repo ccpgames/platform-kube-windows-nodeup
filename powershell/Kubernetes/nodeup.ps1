@@ -578,8 +578,7 @@ foreach($Service in $Services) {
   nssm install $Service "$KubernetesDirectory/bin/$Service"
 
   # Setup logging for each service.
-  New-Item -ItemType "directory" -Path "c:/var/log/services/$Service"
-  nssm set $Service AppStderr (Join-Path -Path "c:/var/log" -ChildPath "$Service/$Service.log")
+  nssm set $Service AppStderr (Join-Path -Path "c:/" -ChildPath "$Service.log")
 }
 
 # Set service dependencies.
