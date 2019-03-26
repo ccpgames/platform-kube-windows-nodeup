@@ -502,7 +502,10 @@ $NodeLabels += @(
   "kubernetes.io/role=node",
   "node-role.kubernetes.io/node="
 )
-$NodeTaints += @("kubernetes.io/os=windows-$($ComputerInfo.WindowsVersion):NoSchedule")
+$NodeTaints += @(
+  "kubernetes.io/os=windows:NoSchedule",
+  "kubernetes.io/os-version=$($ComputerInfo.WindowsVersion):NoSchedule"
+)
 
 # Initially mark the node with NotReady taint.
 $NodeTaints += @("node.kubernetes.io/NotReady=:NoSchedule")
